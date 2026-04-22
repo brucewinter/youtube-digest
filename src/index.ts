@@ -4,7 +4,7 @@ import { getSubscriptions, getNewVideos } from './youtube.js';
 import { fetchTranscript } from './transcript.js';
 import { summarizeVideos } from './summarize.js';
 import { sendDigest } from './email.js';
-import { loadCache, saveCache, shouldCheck, type ChannelRecord } from './cache.js';
+import { loadCache, saveCache, shouldCheck, isRecheckOfInactive } from './cache.js';
 
 async function main() {
   const flagIdx = process.argv.indexOf('--hours');
@@ -32,8 +32,14 @@ async function main() {
   const skipped = subscriptions.length - toCheck.length;
   console.log(`Checking ${toCheck.length} channels (${skipped} inactive/skipped)`);
 
+  const returningChannelIds = new Set(
+    toCheck
+      .filter((c) => isRecheckOfInactive(cache[c.channelId], inactiveDays, recheckDays))
+      .map((c) => c.channelId),
+  );
+
   process.stdout.write('Checking for new videos... ');
-  const { videos, latestPerChannel } = await getNewVideos(auth, toCheck, since);
+  const { videos, latestPerChannel } = await getNewVideos(auth, toCheck, since, returningChannelIds);
   console.log(`${videos.length} new video(s)`);
 
   // Update cache for every channel we actually checked

@@ -45,3 +45,21 @@ export function shouldCheck(
 
   return false; // inactive and checked recently — skip
 }
+
+/** True when a channel is only being checked because the recheck window elapsed
+ *  (i.e. it was inactive and we're doing the periodic sweep). */
+export function isRecheckOfInactive(
+  record: ChannelRecord | undefined,
+  inactiveThresholdDays: number,
+  recheckDays: number,
+): boolean {
+  if (!record) return false; // brand-new channel, not a returning one
+
+  const now = Date.now();
+  const daysSinceChecked = (now - new Date(record.lastCheckedAt).getTime()) / 86_400_000;
+  if (daysSinceChecked < recheckDays) return false; // checked recently — not a recheck sweep
+
+  if (!record.lastVideoAt) return true; // never posted before, now they are
+  const daysSinceVideo = (now - new Date(record.lastVideoAt).getTime()) / 86_400_000;
+  return daysSinceVideo > inactiveThresholdDays;
+}

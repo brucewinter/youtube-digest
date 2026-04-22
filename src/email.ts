@@ -35,35 +35,23 @@ function videoCard(v: VideoSummary): string {
           <a href="${v.url}"
              style="font-size:15px;font-weight:600;color:#111827;text-decoration:none;display:block;margin-bottom:4px;"
           >${v.title}</a>
-          <div style="font-size:12px;color:#9ca3af;">${date}</div>
+          <div style="font-size:12px;color:#6b7280;font-weight:500;margin-bottom:2px;">
+            ${v.isReturning ? `<span style="display:inline-block;background:#fef3c7;color:#92400e;font-size:10px;font-weight:600;letter-spacing:.4px;padding:1px 6px;border-radius:4px;margin-right:6px;text-transform:uppercase;">Returning</span>` : ''}${v.channelTitle}
+          </div>
+          <div style="font-size:12px;color:#9ca3af;">${date}${v.duration ? ` · ${v.duration}` : ''}</div>
           <p style="font-size:14px;color:#374151;margin:8px 0 0;line-height:1.55;">${v.summary}</p>
         </div>
       </div>
     </div>`;
 }
 
-function channelSection(title: string, videos: VideoSummary[]): string {
-  const count = videos.length;
-  return `
-    <div style="margin-bottom:32px;">
-      <h2 style="font-size:17px;font-weight:700;color:#111827;margin:0 0 12px;
-                 padding-bottom:10px;border-bottom:2px solid #f3f4f6;">
-        ${title}
-        <span style="font-size:13px;font-weight:400;color:#6b7280;">
-          — ${count} new video${count > 1 ? 's' : ''}
-        </span>
-      </h2>
-      ${videos.map(videoCard).join('')}
-    </div>`;
-}
-
 export function buildDigestHtml(videos: VideoSummary[], date: Date): string {
-  const grouped = new Map<string, VideoSummary[]>();
-  for (const v of videos) {
-    const list = grouped.get(v.channelTitle) ?? [];
-    list.push(v);
-    grouped.set(v.channelTitle, list);
-  }
+  const byDate = (a: VideoSummary, b: VideoSummary) =>
+    new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime();
+
+  const returning = videos.filter((v) => v.isReturning).sort(byDate);
+  const regular   = videos.filter((v) => !v.isReturning).sort(byDate);
+  const sorted    = [...returning, ...regular];
 
   const dateStr = date.toLocaleDateString('en-US', {
     weekday: 'long',
@@ -72,16 +60,7 @@ export function buildDigestHtml(videos: VideoSummary[], date: Date): string {
     day: 'numeric',
   });
 
-  const sections = [...grouped.entries()]
-    .map(([ch, vids]) => {
-      const sorted = [...vids].sort(
-        (a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime(),
-      );
-      return { ch, sorted, newestAt: new Date(sorted[0].publishedAt).getTime() };
-    })
-    .sort((a, b) => b.newestAt - a.newestAt)
-    .map(({ ch, sorted }) => channelSection(ch, sorted))
-    .join('');
+  const sections = sorted.map(videoCard).join('');
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -103,7 +82,7 @@ export function buildDigestHtml(videos: VideoSummary[], date: Date): string {
         <h1 style="font-size:22px;font-weight:800;color:#111827;margin:0 0 8px;">${dateStr}</h1>
         <div style="font-size:14px;color:#6b7280;">
           ${videos.length} new video${videos.length !== 1 ? 's' : ''}
-          from ${grouped.size} channel${grouped.size !== 1 ? 's' : ''}
+          from ${new Set(videos.map((v) => v.channelTitle)).size} channel${new Set(videos.map((v) => v.channelTitle)).size !== 1 ? 's' : ''}
         </div>
       </div>
 
