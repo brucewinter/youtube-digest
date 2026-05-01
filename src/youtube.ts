@@ -1,5 +1,17 @@
 import { google } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
+import { request } from 'node:https';
+
+function checkIsShort(videoId: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const req = request(
+      { hostname: 'www.youtube.com', path: `/shorts/${videoId}`, method: 'HEAD', agent: false },
+      (res) => { resolve(res.statusCode === 200); res.resume(); },
+    );
+    req.on('error', () => resolve(false));
+    req.end();
+  });
+}
 
 export interface ChannelInfo {
   channelId: string;
@@ -15,18 +27,22 @@ export interface VideoInfo {
   publishedAt: string;
   thumbnailUrl: string;
   url: string;
-  duration: string;    // formatted as m:ss or h:mm:ss
-  isReturning: boolean; // true when from a channel returning after inactivity
+  duration: string;        // formatted as m:ss or h:mm:ss
+  durationSeconds: number;
+  isShort: boolean;        // true when duration <= 60s (YouTube Shorts)
+  isReturning: boolean;    // true when from a channel returning after inactivity
 }
 
-function parseDuration(iso: string): string {
+function parseDuration(iso: string): { formatted: string; seconds: number } {
   const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
-  if (!m) return '';
+  if (!m) return { formatted: '', seconds: 0 };
   const h = parseInt(m[1] ?? '0');
   const min = parseInt(m[2] ?? '0');
   const sec = parseInt(m[3] ?? '0');
+  const seconds = h * 3600 + min * 60 + sec;
   const ss = String(sec).padStart(2, '0');
-  return h > 0 ? `${h}:${String(min).padStart(2, '0')}:${ss}` : `${min}:${ss}`;
+  const formatted = h > 0 ? `${h}:${String(min).padStart(2, '0')}:${ss}` : `${min}:${ss}`;
+  return { formatted, seconds };
 }
 
 export async function getSubscriptions(auth: OAuth2Client): Promise<ChannelInfo[]> {
@@ -129,6 +145,8 @@ export async function getNewVideos(
             '',
           url: `https://youtube.com/watch?v=${videoId}`,
           duration: '',
+          durationSeconds: 0,
+          isShort: false,
           isReturning: returningChannelIds.has(channel.channelId),
         });
       }
@@ -146,9 +164,21 @@ export async function getNewVideos(
     for (const item of detailRes.data.items ?? []) {
       const video = batch.find((v) => v.videoId === item.id);
       if (video && item.contentDetails?.duration) {
-        video.duration = parseDuration(item.contentDetails.duration);
+        const { formatted, seconds } = parseDuration(item.contentDetails.duration);
+        video.duration = formatted;
+        video.durationSeconds = seconds;
       }
     }
+  }
+
+  // Detect Shorts via URL check (works for 1–3 min Shorts, not just ≤60s)
+  // Only bother checking videos under 3 minutes — longer ones can't be Shorts
+  const shortCandidates = videos.filter((v) => v.durationSeconds <= 180 && v.durationSeconds > 0);
+  if (shortCandidates.length > 0) {
+    const results = await Promise.all(
+      shortCandidates.map((v) => checkIsShort(v.videoId)),
+    );
+    shortCandidates.forEach((v, i) => { v.isShort = results[i]; });
   }
 
   return { videos, latestPerChannel };

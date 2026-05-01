@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import { VideoSummary } from './summarize.js';
+import { trackingUrl } from './tracker.js';
 
 // Resend SMTP — avoids fetch/undici connection pool issues from prior API calls
 function createTransport() {
@@ -20,8 +21,9 @@ function videoCard(v: VideoSummary): string {
     + ' at '
     + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 
+  const link  = trackingUrl(v);
   const thumb = v.thumbnailUrl
-    ? `<a href="${v.url}" style="flex-shrink:0;display:block;">
+    ? `<a href="${link}" style="flex-shrink:0;display:block;">
          <img src="${v.thumbnailUrl}" alt="" width="160" height="90"
               style="border-radius:6px;object-fit:cover;display:block;">
        </a>`
@@ -32,7 +34,7 @@ function videoCard(v: VideoSummary): string {
       <div style="display:flex;gap:16px;align-items:flex-start;">
         ${thumb}
         <div style="flex:1;min-width:0;">
-          <a href="${v.url}"
+          <a href="${link}"
              style="font-size:15px;font-weight:600;color:#111827;text-decoration:none;display:block;margin-bottom:4px;"
           >${v.title}</a>
           <div style="font-size:12px;color:#6b7280;font-weight:500;margin-bottom:2px;">
@@ -49,9 +51,10 @@ export function buildDigestHtml(videos: VideoSummary[], date: Date): string {
   const byDate = (a: VideoSummary, b: VideoSummary) =>
     new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime();
 
-  const returning = videos.filter((v) => v.isReturning).sort(byDate);
-  const regular   = videos.filter((v) => !v.isReturning).sort(byDate);
-  const sorted    = [...returning, ...regular];
+  const returningVideos = videos.filter((v) => v.isReturning && !v.isShort).sort(byDate);
+  const regularVideos   = videos.filter((v) => !v.isReturning && !v.isShort).sort(byDate);
+  const regular         = [...returningVideos, ...regularVideos];
+  const shorts          = videos.filter((v) => v.isShort).sort(byDate);
 
   const dateStr = date.toLocaleDateString('en-US', {
     weekday: 'long',
@@ -60,7 +63,16 @@ export function buildDigestHtml(videos: VideoSummary[], date: Date): string {
     day: 'numeric',
   });
 
-  const sections = sorted.map(videoCard).join('');
+  const shortsSection = shorts.length === 0 ? '' : `
+    <div style="margin-top:32px;padding-top:24px;border-top:2px solid #f3f4f6;">
+      <h2 style="font-size:15px;font-weight:700;color:#6b7280;text-transform:uppercase;
+                 letter-spacing:1px;margin:0 0 16px;">
+        Shorts · ${shorts.length}
+      </h2>
+      ${shorts.map(videoCard).join('')}
+    </div>`;
+
+  const sections = [...regular, ...shorts].length === 0 ? '' : regular.map(videoCard).join('') + shortsSection;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -81,7 +93,7 @@ export function buildDigestHtml(videos: VideoSummary[], date: Date): string {
         </div>
         <h1 style="font-size:22px;font-weight:800;color:#111827;margin:0 0 8px;">${dateStr}</h1>
         <div style="font-size:14px;color:#6b7280;">
-          ${videos.length} new video${videos.length !== 1 ? 's' : ''}
+          ${regular.length} video${regular.length !== 1 ? 's' : ''}${shorts.length > 0 ? ` · ${shorts.length} short${shorts.length !== 1 ? 's' : ''}` : ''}
           from ${new Set(videos.map((v) => v.channelTitle)).size} channel${new Set(videos.map((v) => v.channelTitle)).size !== 1 ? 's' : ''}
         </div>
       </div>

@@ -5,6 +5,7 @@ import { fetchTranscript } from './transcript.js';
 import { summarizeVideos } from './summarize.js';
 import { sendDigest } from './email.js';
 import { loadCache, saveCache, shouldCheck, isRecheckOfInactive } from './cache.js';
+import { logDeliveries } from './tracker.js';
 
 async function main() {
   const flagIdx = process.argv.indexOf('--hours');
@@ -69,6 +70,8 @@ async function main() {
   }
 
   const summaries = await summarizeVideos(videos, transcripts);
+
+  logDeliveries(summaries); // fire-and-forget, non-blocking
 
   process.stdout.write('Sending digest email... ');
   await sendDigest(summaries, new Date());
